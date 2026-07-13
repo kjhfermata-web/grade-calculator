@@ -83,17 +83,53 @@ function scoreToGradePointPE(rawScore) {
     return 3;                       // C
 }
 
+// ===== 누락 학기 대체 처리 (PDF 지침 p.21 <표 2> 기준) =====
+// 2학기 없으면 → 동일 학년 1학기로 대체
+// 1학기 없으면 → 동일 학년 2학기로 대체
+function applySubstitution(studentGrades) {
+    var result = {};
+    var semesters = ['1-1','1-2','2-1','2-2','3-1','3-2'];
+    
+    // 기존 데이터 복사
+    semesters.forEach(function(s) {
+        if (studentGrades[s] && studentGrades[s].count > 0) {
+            result[s] = studentGrades[s];
+        }
+    });
+    
+    // 대체 규칙 적용
+    // 1학기 없으면 → 동일 학년 2학기 대체
+    // 2학기 없으면 → 동일 학년 1학기 대체
+    var grades = [1, 2, 3];
+    grades.forEach(function(g) {
+        var sem1 = g + '-1';
+        var sem2 = g + '-2';
+        var has1 = result[sem1] && result[sem1].count > 0;
+        var has2 = result[sem2] && result[sem2].count > 0;
+        
+        if (!has1 && has2) result[sem1] = result[sem2];
+        if (!has2 && has1) result[sem2] = result[sem1];
+    });
+    
+    return result;
+}
+
 // ===== 교과 성적 산출 =====
 // freeType: '1semester' (1학년 1개 학기 자유학기제) 또는 '2semester' (1학년 2개 학기)
 function calcSubjectScore(studentGrades, freeType) {
     var baseScore = 96; // 기본점수 40%
     
+    // 누락 학기 대체 처리 (PDF 지침 기준)
+    // 2학기 없으면 → 동일 학년 1학기로 대체
+    // 1학기 없으면 → 동일 학년 2학기로 대체
+    var grades = applySubstitution(studentGrades);
+    
     if (freeType === '2semester') {
         // 1학년 2개 학기 자유학기제: 2학년 40% + 3학년 60%
-        var s21 = studentGrades['2-1'] || { sum: 0, count: 0 };
-        var s22 = studentGrades['2-2'] || { sum: 0, count: 0 };
-        var s31 = studentGrades['3-1'] || { sum: 0, count: 0 };
-        var s32 = studentGrades['3-2'] || { sum: 0, count: 0 };
+        var s21 = grades['2-1'] || { sum: 0, count: 0 };
+        var s22 = grades['2-2'] || { sum: 0, count: 0 };
+        var s31 = grades['3-1'] || { sum: 0, count: 0 };
+        var s32 = grades['3-2'] || { sum: 0, count: 0 };
         
         var val21 = s21.count > 0 ? s21.sum / s21.count : 0;
         var val22 = s22.count > 0 ? s22.sum / s22.count : 0;
@@ -104,11 +140,11 @@ function calcSubjectScore(studentGrades, freeType) {
         return Math.round(score * 1000) / 1000;
     } else {
         // 1학년 1개 학기 자유학기제: 1학년 10% + 2학년 40% + 3학년 50%
-        var s1j = studentGrades['1-2'] || studentGrades['1-1'] || { sum: 0, count: 0 };
-        var s21b = studentGrades['2-1'] || { sum: 0, count: 0 };
-        var s22b = studentGrades['2-2'] || { sum: 0, count: 0 };
-        var s31b = studentGrades['3-1'] || { sum: 0, count: 0 };
-        var s32b = studentGrades['3-2'] || { sum: 0, count: 0 };
+        var s1j = grades['1-2'] || grades['1-1'] || { sum: 0, count: 0 };
+        var s21b = grades['2-1'] || { sum: 0, count: 0 };
+        var s22b = grades['2-2'] || { sum: 0, count: 0 };
+        var s31b = grades['3-1'] || { sum: 0, count: 0 };
+        var s32b = grades['3-2'] || { sum: 0, count: 0 };
         
         var val1j = s1j.count > 0 ? s1j.sum / s1j.count : 0;
         var val21b = s21b.count > 0 ? s21b.sum / s21b.count : 0;
@@ -853,7 +889,8 @@ function renderUI() {
     html += '&bull; <strong>비교과 성적 (60점, 20%)</strong>: 출결(21점) + 자율활동(12점) + 동아리활동(12점) + 봉사활동(15점)<br>';
     html += '&bull; <strong>석차백분율</strong> = (개인별석차 - 0.5) / 3학년 재적자수 &times; 100 (소수 셋째자리까지)<br>';
     html += '&bull; <strong>동점 처리</strong>: ①비교과 총점 ②학기별 환산점수 평균 ③과목별 원점수 평균 ④생년월일 순<br>';
-    html += '&bull; <strong>자유학기제 유형</strong>: 1학년 1개학기 = 1학년10%+2학년40%+3학년50% / 1학년 2개학기 = 2학년40%+3학년60%';
+    html += '&bull; <strong>자유학기제 유형</strong>: 1학년 1개학기 = 1학년10%+2학년40%+3학년50% / 1학년 2개학기 = 2학년40%+3학년60%<br>';
+    html += '&bull; <strong>누락 학기 자동 대체</strong>: 3학년 2학기 미업로드 시 → 3학년 1학기 성적으로 자동 대체하여 산출';
     html += '</div></div>';
     
     // 파일 업로드
