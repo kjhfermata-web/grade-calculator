@@ -65,21 +65,55 @@ function gradeToScore(grade) {
     return 0;
 }
 
-// ===== 누락 학기 대체 처리 =====
+// ===== 누락 학기 대체 처리 (PDF 부록1 p.21 <표 2> 완전 반영) =====
 function applySubstitution(studentGrades) {
     var result = {};
     var semesters = ['1-1','1-2','2-1','2-2','3-1','3-2'];
     semesters.forEach(function(s) {
         if (studentGrades[s] && studentGrades[s].count > 0) result[s] = studentGrades[s];
     });
-    var grades = [1, 2, 3];
-    grades.forEach(function(g) {
+    
+    // 있는 학년 확인
+    var has1 = (result['1-1'] && result['1-1'].count > 0) || (result['1-2'] && result['1-2'].count > 0);
+    var has2 = (result['2-1'] && result['2-1'].count > 0) || (result['2-2'] && result['2-2'].count > 0);
+    var has3 = (result['3-1'] && result['3-1'].count > 0) || (result['3-2'] && result['3-2'].count > 0);
+    
+    // 학년 간 대체 (PDF 규정)
+    if (!has1 && !has2 && has3) {
+        // 1,2학년 모두 없음 → 3학년 1학기를 1,2학년 1학기에, 3학년 2학기를 1,2학년 2학기에
+        if (result['3-1']) { result['1-1'] = result['3-1']; result['2-1'] = result['3-1']; }
+        if (result['3-2']) { result['1-2'] = result['3-2']; result['2-2'] = result['3-2']; }
+    } else if (!has1 && has2) {
+        // 1학년 없음 → 2학년 1학기를 1학년 1학기에, 2학년 2학기를 1학년 2학기에
+        if (result['2-1']) result['1-1'] = result['2-1'];
+        if (result['2-2']) result['1-2'] = result['2-2'];
+    } else if (!has2 && has3) {
+        // 2학년 없음 → 3학년 1학기를 2학년 1학기에, 3학년 2학기를 2학년 2학기에
+        if (result['3-1']) result['2-1'] = result['3-1'];
+        if (result['3-2']) result['2-2'] = result['3-2'];
+    } else if (!has3 && has2) {
+        // 3학년 없음 → 2학년 1학기를 3학년 1학기에, 2학년 2학기를 3학년 2학기에
+        if (result['2-1']) result['3-1'] = result['2-1'];
+        if (result['2-2']) result['3-2'] = result['2-2'];
+    } else if (!has1 && !has3 && has2) {
+        // 1,3학년 없음 → 2학년으로 대체
+        if (result['2-1']) { result['1-1'] = result['2-1']; result['3-1'] = result['2-1']; }
+        if (result['2-2']) { result['1-2'] = result['2-2']; result['3-2'] = result['2-2']; }
+    } else if (!has2 && !has3 && has1) {
+        // 2,3학년 없음 → 1학년으로 대체
+        if (result['1-1']) { result['2-1'] = result['1-1']; result['3-1'] = result['1-1']; }
+        if (result['1-2']) { result['2-2'] = result['1-2']; result['3-2'] = result['1-2']; }
+    }
+    
+    // 동일 학년 내 학기 간 대체 (2학기 없으면 1학기로, 1학기 없으면 2학기로)
+    [1, 2, 3].forEach(function(g) {
         var sem1 = g + '-1', sem2 = g + '-2';
-        var has1 = result[sem1] && result[sem1].count > 0;
-        var has2 = result[sem2] && result[sem2].count > 0;
-        if (!has1 && has2) result[sem1] = result[sem2];
-        if (!has2 && has1) result[sem2] = result[sem1];
+        var h1 = result[sem1] && result[sem1].count > 0;
+        var h2 = result[sem2] && result[sem2].count > 0;
+        if (!h1 && h2) result[sem1] = result[sem2];
+        if (!h2 && h1) result[sem2] = result[sem1];
     });
+    
     return result;
 }
 
