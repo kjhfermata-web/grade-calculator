@@ -33,10 +33,10 @@ function calcAttendanceScore(absentDays) {
 }
 
 function scoreToGradePoint(rawScore) {
-    if (rawScore >= 90) return 5;
-    if (rawScore >= 80) return 4;
-    if (rawScore >= 70) return 3;
-    if (rawScore >= 60) return 2;
+    if (rawScore >= 89.5) return 5;
+    if (rawScore >= 79.5) return 4;
+    if (rawScore >= 69.5) return 3;
+    if (rawScore >= 59.5) return 2;
     return 1;
 }
 
@@ -48,8 +48,8 @@ function isPeArtSubject(name) {
     return false;
 }
 function scoreToGradePointPE(rawScore) {
-    if (rawScore >= 80) return 5;
-    if (rawScore >= 60) return 4;
+    if (rawScore >= 79.5) return 5;
+    if (rawScore >= 59.5) return 4;
     return 3;
 }
 
