@@ -42,8 +42,11 @@ function scoreToGradePoint(rawScore) {
 
 var PE_ART_SUBJECTS = ['체육', '음악', '미술'];
 function isPeArtSubject(name) {
-    for (var i = 0; i < PE_ART_SUBJECTS.length; i++) {
-        if (name.indexOf(PE_ART_SUBJECTS[i]) >= 0) return true;
+    // 정확한 과목명만 체육/예술로 판별 (선택과목 제외)
+    var exactPE = ['체육', '음악', '미술'];
+    var trimmed = String(name||'').trim();
+    for (var i = 0; i < exactPE.length; i++) {
+        if (trimmed === exactPE[i]) return true;
     }
     return false;
 }
@@ -213,69 +216,78 @@ function parseConfirmSheet(data, classNum) {
 
 // ===== 교과: 1-2학년 통합 파일 파싱 =====
 // 구조: 반코드, 반명, 번호, 성명, 성별, 학년, 학기, 과목점수들...
+// 엑셀 상단에 학년-학기별 과목명 정의 행이 있고, 이후 학생 데이터 행이 나옴
 function parseGrade12File(workbook) {
     var data = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], {header:1, defval:''});
     var result = {}; // key: "반-번호", value: { gradesBySemester, rawScoreBySemester }
     
-    // 헤더 분석: 1행은 교과군 그룹, 2행부터 학년/학기별 실제 과목명
-    // 실제 구조: 행마다 반코드,반명,번호,성명,성별,학년,학기,과목1,과목2,...
-    // 학년+학기 조합별로 과목명이 다름 → 2~6행에 학년/학기별 과목명 배열이 있음
-    
-    // 과목명 행 파싱 (학년+학기 → 과목명 배열)
+    // 1단계: 모든 행을 순회하며 "과목명 정의 행"과 "학생 데이터 행"을 명확히 분리
     var subjectMap = {}; // key: "학년-학기", value: [{col, name, isPE}]
     var dataStartRow = -1;
     
-    // 과목명 정의 행 찾기 (학년/학기 값이 있고 과목명이 나열된 행)
-    for (var i = 0; i < Math.min(data.length, 15); i++) {
+    for (var i = 0; i < data.length; i++) {
         var row = data[i];
-        if (!row) continue;
-        var grade = parseInt(row[5]) || 0;
-        var semester = parseInt(row[6]) || 0;
-        if (grade >= 1 && grade <= 3 && semester >= 1 && semester <= 2) {
-            // 이 행이 과목명 정의인지, 학생 데이터인지 구분
-            // 학생 데이터는 반코드(01,02...) 또는 번호가 있음
-            var hasStudentData = (parseInt(row[2]) > 0 && String(row[3]||'').length >= 2);
-            if (!hasStudentData) {
-                // 과목명 정의 행
-                var subjects = [];
-                for (var j = 7; j < row.length; j++) {
-                    var cell = String(row[j]||'').trim();
-                    if (cell) subjects.push({col:j, name:cell, isPE:isPeArtSubject(cell)});
-                }
-                if (subjects.length > 0) {
-                    subjectMap[grade + '-' + semester] = subjects;
-                }
-            } else {
-                if (dataStartRow < 0) dataStartRow = i;
+        if (!row || row.length < 8) continue;
+        
+        var col5 = parseInt(row[5]) || 0;
+        var col6 = parseInt(row[6]) || 0;
+        
+        // 학년(1~3) + 학기(1~2) 값이 있는 행만 검사
+        if (col5 < 1 || col5 > 3 || col6 < 1 || col6 > 2) continue;
+        
+        // 학생 데이터 행 판별: 반코드(col0)가 2자리 숫자이고 번호(col2)가 양수
+        var banCode = String(row[0]||'').trim();
+        var isBanCode = /^\d{2}$/.test(banCode);
+        var numVal = parseInt(row[2]) || 0;
+        
+        if (isBanCode && numVal > 0) {
+            // 학생 데이터 행
+            if (dataStartRow < 0) dataStartRow = i;
+        } else if (dataStartRow < 0) {
+            // 아직 데이터 시작 전 → 과목명 정의 행 후보
+            // 추가 검증: col7 이후에 숫자가 아닌 텍스트(과목명)가 있어야 함
+            var hasSubjectNames = false;
+            for (var j = 7; j < Math.min(row.length, 30); j++) {
+                var cell = String(row[j]||'').trim();
+                if (cell && isNaN(parseFloat(cell))) { hasSubjectNames = true; break; }
             }
-        } else if (dataStartRow < 0 && String(row[0]||'').match(/^\d{2}$/)) {
-            dataStartRow = i;
-        }
-    }
-    
-    if (dataStartRow < 0) {
-        // 과목명 정의 행이 끝난 다음 행부터 데이터
-        for (var i = 0; i < data.length; i++) {
-            if (String(data[i][0]||'').match(/^\d{2}$/)) { dataStartRow = i; break; }
+            
+            if (hasSubjectNames) {
+                var semKey = col5 + '-' + col6;
+                // 이미 등록된 학년-학기는 덮어쓰지 않음 (첫 번째 발견 행만 사용)
+                if (!subjectMap[semKey]) {
+                    var subjects = [];
+                    for (var j = 7; j < row.length; j++) {
+                        var cell = String(row[j]||'').trim();
+                        if (cell) subjects.push({col:j, name:cell, isPE:isPeArtSubject(cell)});
+                    }
+                    if (subjects.length > 0) {
+                        subjectMap[semKey] = subjects;
+                    }
+                }
+            }
         }
     }
     
     if (dataStartRow < 0) return result;
     
-    // 학생 데이터 파싱
+    // 2단계: 학생 데이터 파싱
     for (var i = dataStartRow; i < data.length; i++) {
         var row = data[i];
         if (!row || row.length < 8) continue;
         
         var banCode = String(row[0]||'').trim();
-        var classNum = parseInt(row[1]) || parseInt(banCode) || 0;
+        if (!/^\d{2}$/.test(banCode)) continue;
+        
+        var classNum = parseInt(row[1]) || 0;
         var num = parseInt(row[2]) || 0;
         var name = String(row[3]||'').trim();
         var grade = parseInt(row[5]) || 0;
         var semester = parseInt(row[6]) || 0;
         
-        if (num === 0 || grade === 0 || semester === 0) continue;
+        if (classNum === 0 || num === 0 || grade === 0 || semester === 0) continue;
         if (grade > 3 || semester > 2) continue;
+        if (!name || name.length < 2) continue;
         
         var key = classNum + '-' + num;
         var semKey = grade + '-' + semester;
@@ -285,13 +297,17 @@ function parseGrade12File(workbook) {
         // 해당 학년-학기의 과목명 배열 가져오기
         var subjects = subjectMap[semKey];
         if (!subjects || subjects.length === 0) {
-            // 과목명 배열이 없으면 7번 컬럼부터 모든 숫자를 과목으로 처리
+            // fallback: 과목명 배열이 없으면 해당 행에서 값이 있는 열을 과목으로 처리
+            // 이 경우에도 체육/예술 구분이 불가하므로 경고를 남김
             subjects = [];
             for (var j = 7; j < row.length; j++) {
                 var val = parseFloat(row[j]);
                 if (!isNaN(val) && val > 0 && val <= 100) {
                     subjects.push({col:j, name:'과목'+(j-6), isPE:false});
                 }
+            }
+            if (typeof console !== 'undefined') {
+                console.warn('[parseGrade12File] subjectMap에 ' + semKey + ' 없음. fallback 사용. 학생: ' + name);
             }
         }
         
